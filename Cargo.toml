@@ -8,3 +8,5 @@ structopt = { version = "0.3", features = ["paw"] }
 paw = "1.0"
 log = "0.4.27"
 env_logger = "0.11.8"
+nix = "0.22.1"
+scan_fmt = "0.2.6"
