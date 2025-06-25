@@ -1,7 +1,6 @@
 use log::LevelFilter;
 use std::path::PathBuf;
 use structopt::StructOpt;
-
 use crate::errors::Errcode;
 
 #[derive(Debug, StructOpt)]

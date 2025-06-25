@@ -4,6 +4,7 @@ mod errors;
 use errors::Errcode;
 mod config;
 mod container;
+mod ipc;
 use crate::errors::exit_with_retcode;
 #[macro_use]
 extern crate scan_fmt;

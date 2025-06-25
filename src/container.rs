@@ -2,6 +2,8 @@ use crate::cli::Args;
 use crate::config::ContainerOpts;
 use crate::errors::Errcode;
 use nix::sys::utsname::uname;
+use nix::unistd::close;
+use std::os::unix::io::RawFd;
 
 pub const MINIMAL_KERNEL_VERSION: f32 = 4.8;
 
@@ -26,12 +28,13 @@ pub fn check_linux_version() -> Result<(), Errcode> {
 
 pub struct Container {
     config: ContainerOpts,
+    sockets: (RawFd, RawFd),
 }
 
 impl Container {
     pub fn new(args: Args) -> Result<Container, Errcode> {
-        let config = ContainerOpts::new(args.command, args.uid, args.mount_dir)?;
-        Ok(Container { config })
+        let (config, sockets) = ContainerOpts::new(args.command, args.uid, args.mount_dir)?;
+        Ok(Container { config, sockets })
     }
 
     pub fn create(&mut self) -> Result<(), Errcode> {
@@ -41,6 +44,14 @@ impl Container {
 
     pub fn clean_exit(&mut self) -> Result<(), Errcode> {
         log::debug!("Cleaning container");
+        if let Err(e) = close(self.socket.0) {
+            log::error!("Unable to write socket: {:?}", e);
+            return Err(Errcode::SocketError(3));
+        }
+        if let Err(e) = close(self.socket.1) {
+            log::error!("Unable to close to read socket : {:?}", e);
+            return Err(Errcode::SocketError(4));
+        }
         Ok(())
     }
 }
