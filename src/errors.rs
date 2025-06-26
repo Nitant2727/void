@@ -7,6 +7,7 @@ pub enum Errcode {
     NotSupported(u8),
     ArguementInvalid(&'static str),
     SocketError(u8),
+    ChildrenProcessError(u8),
 }
 
 impl Errcode {
