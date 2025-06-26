@@ -21,6 +21,7 @@ impl ContainerOpts {
         mount_dir: PathBuf,
     ) -> Result<(ContainerOpts, (RawFd, RawFd)), Errcode> {
         let sockets = generate_socketpair()?;
+        log::debug!("Sockets created successfully: parent_fd={}, child_fd={}", sockets.0, sockets.1);
 
         let argv: Vec<CString> = command
             .split_ascii_whitespace()
