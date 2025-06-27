@@ -5,6 +5,7 @@ mod errors;
 mod child;
 mod config;
 mod container;
+mod hostname;
 mod ipc;
 use crate::errors::exit_with_retcode;
 #[macro_use]

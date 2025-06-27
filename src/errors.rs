@@ -8,6 +8,8 @@ pub enum Errcode {
     ArguementInvalid(&'static str),
     SocketError(u8),
     ChildrenProcessError(u8),
+    HostnameError(u8),
+    RngError,
 }
 
 impl Errcode {

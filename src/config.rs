@@ -1,6 +1,6 @@
 use crate::errors::Errcode;
+use crate::hostname::generate_hostname;
 use crate::ipc::generate_socketpair;
-
 use std::ffi::CString;
 use std::os::unix::io::RawFd;
 use std::path::PathBuf;
@@ -12,6 +12,7 @@ pub struct ContainerOpts {
     pub fd: RawFd,
     pub uid: u32,
     pub mount_dir: PathBuf,
+    pub hostname: String,
 }
 
 impl ContainerOpts {
@@ -21,7 +22,11 @@ impl ContainerOpts {
         mount_dir: PathBuf,
     ) -> Result<(ContainerOpts, (RawFd, RawFd)), Errcode> {
         let sockets = generate_socketpair()?;
-        log::debug!("Sockets created successfully: parent_fd={}, child_fd={}", sockets.0, sockets.1);
+        log::debug!(
+            "Sockets created successfully: parent_fd={}, child_fd={}",
+            sockets.0,
+            sockets.1
+        );
 
         let argv: Vec<CString> = command
             .split_ascii_whitespace()
@@ -36,6 +41,7 @@ impl ContainerOpts {
                 uid,
                 mount_dir,
                 fd: sockets.1.clone(),
+                hostname: generate_hostname()?,
             },
             sockets,
         ))
