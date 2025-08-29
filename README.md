@@ -1,1 +1,2 @@
-A container in Rust
+# Void
+A simple container written in Rust.
