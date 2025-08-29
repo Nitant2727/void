@@ -1,15 +1,28 @@
 use crate::errors::Errcode;
+use crate::config::ContainerOpts;
+use crate::namespaces::userns;
 use crate::hostname::set_container_hostname;
-use crate::{config::ContainerOpts, container::Container};
+use crate::mounts::setmountpoint;
+use crate::capabilities::setcapabilities;
+use crate::syscalls::setsyscalls;
+
+use nix::unistd::{Pid, close, execve};
 use nix::sched::clone;
-use nix::sched::CloneFlags;
 use nix::sys::signal::Signal;
-use nix::unistd::Pid;
-use std::any::Any;
+use nix::sched::CloneFlags;
+use std::ffi::CString;
 
 const STACK_SIZE: usize = 1024 * 1024;
+fn setup_container_configurations(config: &ContainerOpts) -> Result<(), Errcode> {
+    set_container_hostname(&config.hostname)?;
+    setmountpoint(&config.mount_dir, &config.addpaths)?;
+    userns(config.fd, config.uid)?;
+    setcapabilities()?;
+    setsyscalls()?;
+    Ok(())
+}
 
-pub fn child(config: ContainerOpts) -> isize {
+fn child(config: ContainerOpts) -> isize {
     match setup_container_configurations(&config) {
         Ok(_) => log::info!("Container set up successfully"),
         Err(e) => {
@@ -17,77 +30,42 @@ pub fn child(config: ContainerOpts) -> isize {
             return -1;
         }
     }
-    log::info!(
-        "Starting the container with command {} and args {:?}",
-        config.path.to_str().unwrap(),
-        config.argv
-    );
-    0
+
+    if let Err(_) = close(config.fd){
+        log::error!("Error while closing socket ...");
+        return -1;
+    }
+
+    log::info!("Starting container with command {} and args {:?}", config.path.to_str().unwrap(), config.argv);
+    let retcode = match execve::<CString, CString>(&config.path, &config.argv, &[]){
+        Ok(_) => 0,
+        Err(e) => {
+            log::error!("Error while trying to perform execve: {:?}", e);
+            -1
+        }
+    };
+    retcode
 }
 
 pub fn generate_child_process(config: ContainerOpts) -> Result<Pid, Errcode> {
     let mut tmp_stack: [u8; STACK_SIZE] = [0; STACK_SIZE];
+    let mut flags = CloneFlags::empty();
+    flags.insert(CloneFlags::CLONE_NEWNS);
+    flags.insert(CloneFlags::CLONE_NEWCGROUP);
+    flags.insert(CloneFlags::CLONE_NEWPID);
+    flags.insert(CloneFlags::CLONE_NEWIPC);
+    flags.insert(CloneFlags::CLONE_NEWNET);
+    flags.insert(CloneFlags::CLONE_NEWUTS);
 
-    // Strategy 1: Try with user namespace first (works in WSL2)
-    let mut user_flags = CloneFlags::empty();
-    user_flags.insert(CloneFlags::CLONE_NEWUSER);
-    user_flags.insert(CloneFlags::CLONE_NEWPID);
-    user_flags.insert(CloneFlags::CLONE_NEWUTS);
-
-    match clone(
+    let res = unsafe {clone(
         Box::new(|| child(config.clone())),
         &mut tmp_stack,
-        user_flags,
-        Some(Signal::SIGCHLD as i32),
-    ) {
-        Ok(pid) => {
-            log::info!("Container created with user namespace isolation (WSL2 compatible)");
-            return Ok(pid);
-        }
-        Err(e) => {
-            log::debug!("User namespace failed: {:?}", e);
-        }
+        flags,
+        Some(Signal::SIGCHLD as i32)
+    )};
+
+    match res {
+        Ok(pid) => Ok(pid),
+        Err(_) => Err(Errcode::ChildProcessError(0))
     }
-
-    // Strategy 2: Try full namespaces (for real Linux)
-    let mut full_flags = CloneFlags::empty();
-    full_flags.insert(CloneFlags::CLONE_NEWNS);
-    full_flags.insert(CloneFlags::CLONE_NEWCGROUP);
-    full_flags.insert(CloneFlags::CLONE_NEWPID);
-    full_flags.insert(CloneFlags::CLONE_NEWIPC);
-    full_flags.insert(CloneFlags::CLONE_NEWNET);
-    full_flags.insert(CloneFlags::CLONE_NEWUTS);
-
-    match clone(
-        Box::new(|| child(config.clone())),
-        &mut tmp_stack,
-        full_flags,
-        Some(Signal::SIGCHLD as i32),
-    ) {
-        Ok(pid) => {
-            log::info!("Container created with full namespace isolation");
-            Ok(pid)
-        }
-        Err(_) => {
-            // Strategy 3: Fallback without namespaces
-            log::warn!("All namespace attempts failed, running without isolation...");
-            match clone(
-                Box::new(|| child(config.clone())),
-                &mut tmp_stack,
-                CloneFlags::empty(),
-                Some(Signal::SIGCHLD as i32),
-            ) {
-                Ok(pid) => {
-                    log::warn!("Container running WITHOUT namespace isolation!");
-                    Ok(pid)
-                }
-                Err(_) => Err(Errcode::ChildrenProcessError(0)),
-            }
-        }
-    }
-}
-
-fn setup_container_configurations(config: &ContainerOpts) -> Result<(), Errcode> {
-    set_container_hostname(&config.hostname)?;
-    Ok(())
 }
